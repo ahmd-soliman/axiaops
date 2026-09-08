@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
-# Blocks pushing any commit whose message carries a
-# `Co-Authored-By: Claude ...` trailer. See docs/git-history-scrub-runbook.md.
+# Blocks pushing any commit whose message carries an AI-attribution trailer
+# (Co-Authored-By: Claude, Claude-Session:, or a Generated-with-Claude line).
+# See docs/git-history-scrub-runbook.md.
+#
+# Claude-Session was added after a Co-Authored-By-only version of this hook
+# let `Claude-Session: https://claude.ai/code/...` lines slip past it
+# repeatedly (found on main: #64, #83, and others predating this hook) —
+# that line doesn't match "Co-Authored-By" but is exactly the same
+# phantom-contributor risk the original hook was written to stop.
 set -euo pipefail
 
-pattern='^[[:space:]]*Co-Authored-By:[[:space:]]*Claude'
+pattern='^[[:space:]]*(co-authored-by:.*claude|claude-session:)|generated (with|by) claude'
 zero='0000000000000000000000000000000000000000'
 blocked=0
 
@@ -11,15 +18,29 @@ while read -r local_ref local_sha remote_ref remote_sha; do
 	[ "$local_sha" = "$zero" ] && continue # deleting a ref
 
 	if [ "$remote_sha" = "$zero" ]; then
-		range="$local_sha"
+		# New branch/ref -- no remote tip to diff against. Scope to commits
+		# not already known on any remote-tracking ref, NOT bare
+		# "$local_sha" (the previous version's approach): `git log <sha>`
+		# walks that commit's FULL ancestor history, so on a repo whose
+		# default branch already contains an offending commit (as main
+		# does), every ordinary new branch would false-positive-block on
+		# history it never touched. `--not --all` has the same problem in
+		# reverse -- it also excludes the LOCAL branch ref being pushed
+		# (which by now points at $local_sha itself), so it always
+		# self-excludes and reports nothing. `--remotes` only excludes
+		# what's already on a remote, never the ref being pushed.
+		commits=$(git rev-list "$local_sha" --not --remotes)
 	else
-		range="$remote_sha..$local_sha"
+		commits=$(git rev-list "$remote_sha..$local_sha")
 	fi
+	[ -z "$commits" ] && continue
 
-	hits=$(git log "$range" --grep="$pattern" -i --format='%H' 2>/dev/null || true)
+	# --no-walk: check exactly these commits, don't walk their ancestry
+	# (both branches above already computed the precise commit set).
+	hits=$(git log --no-walk --grep="$pattern" -i -E --format='%H' $commits 2>/dev/null || true)
 	if [ -n "$hits" ]; then
 		blocked=1
-		echo "error: refusing to push $local_ref — commit(s) carry a 'Co-Authored-By: Claude' trailer:" >&2
+		echo "error: refusing to push $local_ref — commit(s) carry an AI-attribution trailer:" >&2
 		while read -r sha; do
 			[ -n "$sha" ] && git log -1 --format='  %h %s' "$sha" >&2
 		done <<<"$hits"
