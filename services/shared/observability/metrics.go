@@ -161,11 +161,11 @@ func newMetrics() *Metrics {
 		ZombiesDetected: factory.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "axiaops_zombies_detected",
 			Help: "Number of zombie resources detected by provider.",
-		}, []string{"provider", "organization_id"}),
+		}, []string{"provider", "organization_id", "account_label"}),
 		PotentialMonthlySaving: factory.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "axiaops_potential_monthly_savings_usd",
 			Help: "Potential monthly savings in USD by provider.",
-		}, []string{"provider", "organization_id"}),
+		}, []string{"provider", "organization_id", "account_label"}),
 
 		// Scan lifecycle metrics
 		ScanDuration: factory.NewHistogramVec(prometheus.HistogramOpts{

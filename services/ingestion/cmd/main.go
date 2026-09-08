@@ -746,8 +746,15 @@ func runIngestionCore(ctx context.Context, store storage.Store, accountID string
 
 	summary := analyzer.Summarize(zombies)
 	slog.Info("analysis: detected zombie resources", "total", summary.TotalZombies, "potential_savings", fmt.Sprintf("%.2f %s/month", summary.PotentialMonthlySave, summary.Currency))
-	observability.Global.ZombiesDetected.WithLabelValues(awsClient.Name(), organizationID).Set(float64(summary.TotalZombies))
-	observability.Global.PotentialMonthlySaving.WithLabelValues(awsClient.Name(), organizationID).Set(summary.PotentialMonthlySave)
+	// account.Label is the user-defined name from account setup (falls back to
+	// the raw AWS account number when unset) — Grafana legends read this
+	// instead of the bare organization_id UUID, which isn't human-readable.
+	accountLabel := account.Label
+	if accountLabel == "" {
+		accountLabel = account.AccountID
+	}
+	observability.Global.ZombiesDetected.WithLabelValues(awsClient.Name(), organizationID, accountLabel).Set(float64(summary.TotalZombies))
+	observability.Global.PotentialMonthlySaving.WithLabelValues(awsClient.Name(), organizationID, accountLabel).Set(summary.PotentialMonthlySave)
 
 	if err := store.SaveZombies(ctx, zombies); err != nil {
 		return false, fmt.Errorf("save zombies: %w", err)
