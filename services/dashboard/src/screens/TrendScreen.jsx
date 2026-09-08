@@ -8,7 +8,7 @@ import DateRangeChips, { DEFAULT_DAYS } from '../components/DateRangeChips';
 import { useToast } from '../context/ToastContext';
 import { useWindowWidth } from '../components/primitives';
 import { useBreakpoint } from '../components/primitives/useBreakpoint';
-import { Spinner } from '../components/primitives';
+import { Spinner, InfoTooltip } from '../components/primitives';
 // Aliased: this file keeps a local compact `formatDate` ("29 May", no year) for
 // chart-axis ticks; the shared helper is the full "29 May 2026" display form.
 import { formatDate as formatFullDate } from '../utils/formatDate';
@@ -466,9 +466,21 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
     ? selectedSnap.total_monthly_cost
     : avgWindowCost;
 
-  const delta = latestSnap && firstSnap && firstSnap !== latestSnap
-    ? ((latestSnap.total_monthly_cost - firstSnap.total_monthly_cost) / Math.max(firstSnap.total_monthly_cost, 0.01)) * 100
-    : null;
+  // Percentage change over the window. When the window's starting cost is
+  // ~$0, dividing by a floor (the old behaviour) produces a technically-true
+  // but meaningless figure (e.g. $0 → $3.60 renders as "▲ 36000.0%"). Below
+  // COST_EPSILON we report a qualitative "new"/"cleared" delta instead of a
+  // percentage — there's no meaningful "percent increase" from zero.
+  const COST_EPSILON = 0.01;
+  const delta = (() => {
+    if (!latestSnap || !firstSnap || firstSnap === latestSnap) return null;
+    const from = firstSnap.total_monthly_cost;
+    const to = latestSnap.total_monthly_cost;
+    if (from <= COST_EPSILON && to <= COST_EPSILON) return null; // no waste at either end
+    if (from <= COST_EPSILON) return { kind: 'new' };
+    if (to <= COST_EPSILON) return { kind: 'cleared' };
+    return { kind: 'percent', value: ((to - from) / from) * 100 };
+  })();
 
   const visibleRows = reversedSnaps.slice(0, listPage * LIST_PAGE_SIZE);
   const hasMoreRows = visibleRows.length < reversedSnaps.length;
@@ -513,8 +525,27 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
             point's exact value (handled by selectedSnap above), so the
             "avg over period" framing would be misleading. */}
         {!selectedSnap && filteredSnaps.length > 0 && (
-          <span style={{ fontSize: 11, color: 'var(--color-text-muted)', display: 'block', marginTop: 1 }}>
+          <span style={{ fontSize: 11, color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', gap: 5, marginTop: 1 }}>
             Avg zombie monthly-rate · last {period} day{period === 1 ? '' : 's'} · before dismissals
+            <InfoTooltip
+              label="What does this average mean?"
+              placement="right"
+              body={
+                <>
+                  <p style={{ margin: 0 }}>
+                    Averaged over calendar days that had at least one scan in this window — not
+                    over individual scans. A day with 8 scans counts the same as a day with 1, so
+                    a busy scan day can't outweigh a quiet one.
+                  </p>
+                  <p style={{ margin: '8px 0 0', color: 'var(--color-text-mid)' }}>
+                    A day with no zombies still counts as a $0 day and pulls the average down —
+                    so this number is usually lower than your most recent scan's total. Click a
+                    point below to see one scan's exact value instead, or check the Overview
+                    screen's <strong>Monthly Waste</strong> card for the current live total.
+                  </p>
+                </>
+              }
+            />
           </span>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4, flexWrap: 'wrap' }}>
@@ -523,11 +554,16 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
               ? `${displaySnap.zombie_count} zombie resource${displaySnap.zombie_count !== 1 ? 's' : ''}`
               : 'No data'}
           </span>
-          {delta !== null && (
-            <span style={{ fontSize: 12, fontWeight: 700, color: delta > 0 ? 'var(--color-error)' : 'var(--color-success)' }}>
-              {delta > 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}% over period
-            </span>
-          )}
+          {delta !== null && (() => {
+            const isGood = delta.kind === 'cleared' || (delta.kind === 'percent' && delta.value <= 0);
+            return (
+              <span style={{ fontSize: 12, fontWeight: 700, color: isGood ? 'var(--color-success)' : 'var(--color-error)' }}>
+                {delta.kind === 'new' && '▲ new waste this period'}
+                {delta.kind === 'cleared' && '▼ waste cleared this period'}
+                {delta.kind === 'percent' && `${delta.value > 0 ? '▲' : '▼'} ${Math.abs(delta.value).toFixed(1)}% over period`}
+              </span>
+            );
+          })()}
         </div>
       </div>
 
