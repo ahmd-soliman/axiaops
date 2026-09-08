@@ -1,5 +1,5 @@
 ---
-title: AxiaOps
+title: AxiaOps — Find & Eliminate Wasted AWS Spend
 description: Find and eliminate wasted AWS spend — idle, abandoned, and forgotten cloud resources, detected automatically.
 template: splash
 hero:
@@ -16,6 +16,27 @@ hero:
       link: /guides/deployment/
       icon: rocket
       variant: minimal
+head:
+  - tag: script
+    attrs:
+      type: application/ld+json
+    content: |
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "AxiaOps",
+        "description": "Self-hosted, open-source FinOps tool that detects idle and zombie AWS resources still incurring costs despite zero usage.",
+        "url": "https://axiaops.io/",
+        "applicationCategory": "BusinessApplication",
+        "operatingSystem": "Kubernetes, AWS ECS",
+        "license": "https://www.apache.org/licenses/LICENSE-2.0",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        },
+        "sameAs": ["https://github.com/axiaops-io/axiaops"]
+      }
 ---
 
 import { Card, CardGrid } from '@astrojs/starlight/components';
