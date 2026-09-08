@@ -206,34 +206,51 @@ jobs:
           fi
       - run: ./scripts/check-migration-search-path.sh
 
-  # Excluded from the `code` filter above (nothing in test-unit/lint/
-  # integration/e2e touches this file), so a dashboard-only change would
-  # otherwise merge with zero validation. jq empty parses the file and
-  # discards the output -- exits non-zero with a pointer at the bad byte
-  # on malformed JSON, silent success otherwise.
-  validate-grafana-dashboard:
+  # Combined into one job (rather than two) to halve the fixed per-job
+  # runner-provisioning + checkout overhead -- both checks are sub-second
+  # static validation with no service containers, so that overhead would
+  # otherwise dwarf the actual work. Neither path change blocks the other:
+  # each step below gates independently on its own filter output, so a
+  # PR touching only one of the two paths skips the other tool's steps
+  # (and its setup-helm cost) while still running its own.
+  validate-configs:
     needs: changes
-    if: failure() || needs.changes.outputs.grafana == 'true'
+    if: failure() || needs.changes.outputs.grafana == 'true' || needs.changes.outputs.helm == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - run: jq empty deploy/observability/grafana-dashboard.json
 
-  # deploy/helm/axiaops is the customer-facing install path (docs/
-  # deployment guides), but it's Go-template YAML -- nothing in
-  # test-unit/lint/integration/e2e renders it, and deploy-pages.yml only
-  # `helm package`s it on push to main (no pull_request trigger, and
-  # package doesn't render templates). This is the only check that
-  # actually renders the chart before merge.
-  helm-lint:
-    needs: changes
-    if: failure() || needs.changes.outputs.helm == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
+      # Grafana dashboard JSON — excluded from the `code` filter above
+      # (nothing in test-unit/lint/integration/e2e touches this file), so
+      # a dashboard-only change would otherwise merge with zero
+      # validation. jq empty parses the file and discards the output --
+      # exits non-zero with a pointer at the bad byte on malformed JSON,
+      # silent success otherwise.
+      # NOTE: none of these four steps use `failure() || ...` — a step-level
+      # failure() means "a prior step in THIS job failed", not "the changes
+      # job failed". Using it here would make e.g. a broken Grafana JSON
+      # also run the unrelated helm steps on a PR that never touched the
+      # chart. The job-level `if` above already covers the changes-job-
+      # failed fallback (mirrors test-unit/lint's pattern); a step simply
+      # checks its own filter output.
+      - name: Validate Grafana dashboard JSON
+        if: needs.changes.outputs.grafana == 'true'
+        run: jq empty deploy/observability/grafana-dashboard.json
+
+      # deploy/helm/axiaops is the customer-facing install path (docs/
+      # deployment guides), but it's Go-template YAML -- nothing in
+      # test-unit/lint/integration/e2e renders it, and deploy-pages.yml
+      # only `helm package`s it on push to main (no pull_request trigger,
+      # and package doesn't render templates). This is the only check
+      # that actually renders the chart before merge.
       - uses: azure/setup-helm@v4
-      - run: helm lint deploy/helm/axiaops
-      - run: helm template deploy/helm/axiaops > /dev/null
+        if: needs.changes.outputs.helm == 'true'
+      - name: helm lint
+        if: needs.changes.outputs.helm == 'true'
+        run: helm lint deploy/helm/axiaops
+      - name: helm template
+        if: needs.changes.outputs.helm == 'true'
+        run: helm template deploy/helm/axiaops > /dev/null
 
   test-integration-api:
     runs-on: ubuntu-latest
