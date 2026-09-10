@@ -30,19 +30,44 @@ const LIST_PAGE_SIZE = 50;
 // view on the "daily" toggle was silently weekly-bucketed, which made the
 // two screens render inconsistent shapes at the same period.
 
+// A scan's calendar day/month, in the VIEWER'S LOCAL timezone -- not the
+// UTC date the timestamp string happens to start with. snapshot_at is
+// stored/serialized as UTC, but every date this screen shows the user
+// (history rows, chart labels, the "as of {date}" headline caption) is
+// rendered in local time. Bucketing on `snapshot_at.slice(0, 10)` (a UTC
+// date) while displaying local dates meant two scans a user sees as two
+// different calendar days -- e.g. "9 Sept 23:02" and "10 Sept 01:25" local,
+// which can be the same UTC date if local time is far enough ahead of UTC --
+// silently landed in the same bucket. Date's local-time getters (getFullYear
+// /getMonth/getDate, as opposed to their getUTC* counterparts) give the day
+// the viewer actually perceives.
+export function localDayKey(isoString) {
+  const d = new Date(isoString);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function localMonthKey(isoString) {
+  const d = new Date(isoString);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
 // total_monthly_cost is a point-in-time RATE ("if this keeps up for a
 // month"), not a per-scan charge. "One observation per account per day"
 // therefore means one *reading* per account per day, not a sum of however
 // many times that account happened to scan that day -- an account rescanned
-// several times in one day (dev cadence, manual re-triggers, or a
-// UTC-vs-local day boundary landing two real calendar days in the same
-// bucket) would otherwise have its own ongoing rate added to itself N
-// times. Take the latest reading per (account, day) first; every caller
-// that buckets by day builds on this.
+// several times in one day (dev cadence, manual re-triggers) would
+// otherwise have its own ongoing rate added to itself N times. Take the
+// latest reading per (account, day) first; every caller that buckets by day
+// builds on this.
 export function latestPerAccountPerDay(snaps) {
   const latest = new Map();
   for (const s of snaps) {
-    const day = s.snapshot_at.slice(0, 10);
+    const day = localDayKey(s.snapshot_at);
     const key = `${s.account_id}|${day}`;
     const existing = latest.get(key);
     if (!existing || s.snapshot_at > existing.snapshot_at) {
@@ -61,7 +86,7 @@ export function aggregateToDays(snaps) {
   if (!snaps || snaps.length === 0) return [];
   const byDay = new Map();
   for (const s of latestPerAccountPerDay(snaps)) {
-    const day = s.snapshot_at.slice(0, 10);
+    const day = localDayKey(s.snapshot_at);
     const existing = byDay.get(day);
     if (existing) {
       existing.total_monthly_cost += s.total_monthly_cost ?? 0;
@@ -77,12 +102,12 @@ export function aggregateToDays(snaps) {
   return [...byDay.values()].sort((a, b) => a.snapshot_at.localeCompare(b.snapshot_at));
 }
 
-// Group snapshots by calendar month — sum costs, sum zombie counts.
+// Group snapshots by calendar month (local timezone) — sum costs, sum zombie counts.
 function downsampleByMonth(snaps) {
   if (!snaps || snaps.length === 0) return [];
   const buckets = new Map();
   for (const s of snaps) {
-    const key = new Date(s.snapshot_at).toISOString().slice(0, 7);
+    const key = localMonthKey(s.snapshot_at);
     if (!buckets.has(key)) buckets.set(key, []);
     buckets.get(key).push(s);
   }
@@ -104,7 +129,7 @@ function downsampleByMonth(snaps) {
 function aggregateBucket(group) {
   const byDay = new Map();
   for (const s of latestPerAccountPerDay(group)) {
-    const day = s.snapshot_at.slice(0, 10);
+    const day = localDayKey(s.snapshot_at);
     const acc = byDay.get(day) ?? { cost: 0, zombies: 0 };
     acc.cost += s.total_monthly_cost ?? 0;
     acc.zombies += s.zombie_count ?? 0;
@@ -466,40 +491,19 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
   const displaySnap = selectedSnap ?? latestSnap;
   const firstSnap   = filteredSnaps[0];
 
-  // Average daily org-wide cost across the picked window. Computed as
-  // (sum across all accounts per day, then average those daily totals across
-  // the unique days in the window). The two-step shape matters: naively
-  // averaging .total_monthly_cost across every (account, scan) row biases
-  // the result toward whichever account scans most often, which produces
-  // weird mixed-magnitude numbers in multi-account orgs. Grouping by day
-  // first collapses that bias — every day contributes one observation,
-  // regardless of how many accounts scanned it.
-  //
-  // total_monthly_cost is a point-in-time RATE ("if this keeps up for a
-  // month"), not a per-scan charge -- so "one observation per account per
-  // day" must mean one *reading*, not a sum of however many times that
-  // account happened to scan that day. An account rescanned several times
-  // in one day (dev cadence, manual re-triggers, or a UTC-vs-local day
-  // boundary landing two real calendar days in the same bucket) would
-  // otherwise have its own ongoing rate added to itself N times, inflating
-  // that day's contribution by however many extra scans landed on it. Take
-  // the latest reading per (account, day) first, then sum across accounts.
-  //
-  // selectedSnap still overrides so clicking a history point shows its
-  // exact value (the user's already-explicit choice).
-  const avgWindowCost = (() => {
-    if (filteredSnaps.length === 0) return 0;
-    const byDay = new Map();
-    for (const s of latestPerAccountPerDay(filteredSnaps)) {
-      const day = s.snapshot_at.slice(0, 10);
-      byDay.set(day, (byDay.get(day) ?? 0) + (s.total_monthly_cost ?? 0));
-    }
-    const dailyTotals = [...byDay.values()];
-    return dailyTotals.reduce((a, b) => a + b, 0) / dailyTotals.length;
-  })();
-  const headlineCost = selectedSnap
-    ? selectedSnap.total_monthly_cost
-    : avgWindowCost;
+  // The headline shows the currently-displayed scan's own rate -- the
+  // user's explicit click if they selected a history point, otherwise the
+  // most recent scan. total_monthly_cost is a point-in-time RATE ("if this
+  // keeps up for a month"), not a per-scan charge; averaging it across a
+  // multi-day window (the previous behaviour) produced a number that didn't
+  // correspond to any real moment and structurally under-reported a rate
+  // that's currently trending up, which is exactly what happened here --
+  // days of $0 (no waste yet) averaged against the current $3.60 read as a
+  // much smaller, misleadingly reassuring headline. Showing the latest
+  // reading directly also keeps this number in sync with the zombie count
+  // just below it, which already reflects displaySnap (the previous
+  // avg-vs-latest split meant the two lines could describe different scans).
+  const headlineCost = displaySnap?.total_monthly_cost ?? 0;
 
   // Percentage change over the window. When the window's starting cost is
   // ~$0, dividing by a floor (the old behaviour) produces a technically-true
@@ -555,28 +559,27 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
         <span style={{ fontSize: 32, fontWeight: 800, color: 'var(--color-accent)', letterSpacing: -0.5, display: 'block' }}>
           {displaySnap?.currency ?? '$'} {filteredSnaps.length > 0 ? headlineCost.toFixed(2) : '0.00'}
         </span>
-        {/* Average label visible only on the non-selected (period) view —
-            when the user has clicked into a history point we show that
-            point's exact value (handled by selectedSnap above), so the
-            "avg over period" framing would be misleading. */}
+        {/* Latest-scan label visible only on the non-selected (period) view —
+            when the user has clicked into a history point the top header
+            above already reads "Snapshot · {date}", so repeating the date
+            here would be redundant. */}
         {!selectedSnap && filteredSnaps.length > 0 && (
           <span style={{ fontSize: 11, color: 'var(--color-text-muted)', display: 'flex', alignItems: 'center', gap: 5, marginTop: 1 }}>
-            Avg zombie monthly-rate · last {period} day{period === 1 ? '' : 's'} · before dismissals
+            Zombie monthly-rate · as of {formatFullDate(latestSnap.snapshot_at)} · before dismissals
             <InfoTooltip
-              label="What does this average mean?"
+              label="What does this number mean?"
               placement="right"
               body={
                 <>
                   <p style={{ margin: 0 }}>
-                    Averaged over calendar days that had at least one scan in this window — not
-                    over individual scans. A day with 8 scans counts the same as a day with 1, so
-                    a busy scan day can't outweigh a quiet one.
+                    This is the most recent scan's estimate: if these zombie resources stay idle
+                    for a full month at today's rate, this is what they'd cost — not money already
+                    spent, and not an average over the window shown below.
                   </p>
                   <p style={{ margin: '8px 0 0', color: 'var(--color-text-mid)' }}>
-                    A day with no zombies still counts as a $0 day and pulls the average down —
-                    so this number is usually lower than your most recent scan's total. Click a
-                    point below to see one scan's exact value instead, or check the Overview
-                    screen's <strong>Monthly Waste</strong> card for the current live total.
+                    "Before dismissals" means resources you've dismissed or snoozed are still
+                    counted here. Click a point in the chart below to see an earlier scan's exact
+                    value instead.
                   </p>
                 </>
               }
