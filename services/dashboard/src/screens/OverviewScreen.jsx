@@ -44,6 +44,64 @@ const SNOOZE_OPTIONS = [
 // <button>, and nested interactives are invalid HTML. div role="button"
 // needs explicit keyboard handling and a visible focus ring (browsers don't
 // apply :focus-visible to non-button elements consistently).
+// A scan's calendar day in the VIEWER'S LOCAL timezone, not the UTC date the
+// timestamp string starts with -- see computeDailyTotals for why this
+// matters. Duplicates TrendScreen.jsx's localDayKey; extract to a shared
+// util if a third caller shows up.
+function localDayKey(isoString) {
+  const d = new Date(isoString);
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const da = String(d.getDate()).padStart(2, '0');
+  return `${y}-${mo}-${da}`;
+}
+
+// /v1/trend returns one row per (account, scan), not one row per scan day.
+// In All Accounts mode each scan day produces N rows (one per account that
+// scanned), so naively comparing the last two rows compared two arbitrary
+// accounts' totals — making the headline ▲/▼ % delta meaningless. Roll up
+// by date here so the delta compares yesterday's org-wide total to today's.
+// Then trim to the selected window so the chip selection scopes the
+// dailyTotals slice exactly the way it scopes the fetchCosts window in the
+// parent component. A Custom… pick scopes by the actual applied calendar
+// dates (`customRange`) rather than trailing-N-entries — slice(-period)
+// would silently show the most recent `period` days of data regardless of
+// which historical dates the user actually picked, the same label/data
+// mismatch fixed in DateRangeChips itself. Preset chips keep the trailing
+// "period days back from the most recent snapshot" window.
+//
+// Two more things this roll-up must get right, both found the hard way on
+// TrendScreen.jsx's equivalent bucketing (see #80/#81) and duplicated here
+// since this file has its own separate roll-up:
+//  1. total_monthly_cost is a point-in-time RATE, not a per-scan charge --
+//     an account rescanned multiple times in one day must contribute one
+//     reading to that day, not the sum of however many times it scanned
+//     (otherwise the same ongoing liability gets counted N times).
+//  2. The day must be computed in the viewer's LOCAL timezone. Slicing
+//     the raw UTC timestamp string put a scan the viewer sees as "10
+//     Sept" into the "9 Sept" bucket whenever local time is far enough
+//     ahead of UTC.
+export function computeDailyTotals(trendRows, period, customRange) {
+  const latestPerAccountDay = new Map();
+  for (const s of trendRows ?? []) {
+    const key = `${s.account_id}|${localDayKey(s.snapshot_at)}`;
+    const existing = latestPerAccountDay.get(key);
+    if (!existing || s.snapshot_at > existing.snapshot_at) {
+      latestPerAccountDay.set(key, s);
+    }
+  }
+  const m = new Map();
+  for (const s of latestPerAccountDay.values()) {
+    const day = localDayKey(s.snapshot_at);
+    m.set(day, (m.get(day) || 0) + s.total_monthly_cost);
+  }
+  const sorted = [...m.entries()].sort();
+  if (customRange) {
+    return sorted.filter(([day]) => day >= customRange.sinceIso && day <= customRange.untilIso);
+  }
+  return period > 0 && sorted.length > period ? sorted.slice(-period) : sorted;
+}
+
 function MonthlyWasteCard({ onShowTrend, children }) {
   const [focused, setFocused] = useState(false);
   return (
@@ -93,31 +151,12 @@ function OverviewHero({ summary, totalSpend, trend, period, customRange, onPerio
   const wastePercent = totalSpend > 0 ? (waste / totalSpend) * 100 : 0;
   const wasteLabel = period === 30 ? 'Monthly Waste' : `${period}-day Waste`;
 
-  // /v1/trend returns one row per (account, scan), not one row per scan day.
-  // In All Accounts mode each scan day produces N rows (one per account that
-  // scanned), so naively comparing the last two rows compared two arbitrary
-  // accounts' totals — making the headline ▲/▼ % delta meaningless. Roll up
-  // by date here so the delta compares yesterday's org-wide total to today's.
-  // Then trim to the selected window so the chip selection scopes the
-  // dailyTotals slice exactly the way it scopes the fetchCosts window in the
-  // parent component. A Custom… pick scopes by the actual applied calendar
-  // dates (`customRange`) rather than trailing-N-entries — slice(-period)
-  // would silently show the most recent `period` days of data regardless of
-  // which historical dates the user actually picked, the same label/data
-  // mismatch fixed in DateRangeChips itself. Preset chips keep the trailing
-  // "period days back from the most recent snapshot" window.
-  const dailyTotals = useMemo(() => {
-    const m = new Map();
-    for (const s of trend.data ?? []) {
-      const day = s.snapshot_at.slice(0, 10);
-      m.set(day, (m.get(day) || 0) + s.total_monthly_cost);
-    }
-    const sorted = [...m.entries()].sort();
-    if (customRange) {
-      return sorted.filter(([day]) => day >= customRange.sinceIso && day <= customRange.untilIso);
-    }
-    return period > 0 && sorted.length > period ? sorted.slice(-period) : sorted;
-  }, [trend.data, period, customRange]);
+  // See computeDailyTotals for why this rolls up by (account, day) before
+  // summing across accounts, rather than just grouping trend.data by day.
+  const dailyTotals = useMemo(
+    () => computeDailyTotals(trend.data, period, customRange),
+    [trend.data, period, customRange]
+  );
   // Compare today's org-wide total to the total at the WINDOW START — so the
   // ▲/▼ headline answers "how have we trended over the last {period} days?"
   // rather than the previous "vs yesterday" which collapses to noise when the
@@ -127,9 +166,19 @@ function OverviewHero({ summary, totalSpend, trend, period, customRange, onPerio
   // to — delta is undefined and the headline omits the arrow.
   const latest   = dailyTotals.at(-1)?.[1];
   const earliest = dailyTotals.length > 1 ? dailyTotals.at(0)?.[1] : undefined;
-  const delta    = latest != null && earliest != null
-    ? ((latest - earliest) / Math.max(earliest, 0.01)) * 100
-    : null;
+  // When the window's starting cost is ~$0, dividing by a floor (the old
+  // behaviour) produces a technically-true but meaningless figure -- e.g.
+  // $0 → $7.20 rendered as "▲ 144000.0%". Below COST_EPSILON we report a
+  // qualitative "new"/"cleared" delta instead of a percentage, same fix as
+  // TrendScreen's delta badge (see #80/#81).
+  const COST_EPSILON = 0.01;
+  const delta = (() => {
+    if (latest == null || earliest == null) return null;
+    if (earliest <= COST_EPSILON && latest <= COST_EPSILON) return null; // no waste at either end
+    if (earliest <= COST_EPSILON) return { kind: 'new' };
+    if (latest <= COST_EPSILON) return { kind: 'cleared' };
+    return { kind: 'percent', value: ((latest - earliest) / earliest) * 100 };
+  })();
 
   return (
     <div style={{ backgroundColor: 'var(--color-surface-alt)', borderBottom: '1px solid var(--color-border)', padding: isMobile ? '16px' : '20px' }}>
@@ -207,11 +256,16 @@ function OverviewHero({ summary, totalSpend, trend, period, customRange, onPerio
             <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
               {zombieCount} zombie{zombieCount !== 1 ? 's' : ''}
             </span>
-            {delta !== null && (
-              <span style={{ fontSize: 11, color: delta > 0 ? 'var(--color-alert-critical)' : 'var(--color-status-ok)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
-                {delta > 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)}%
-              </span>
-            )}
+            {delta !== null && (() => {
+              const isGood = delta.kind === 'cleared' || (delta.kind === 'percent' && delta.value <= 0);
+              return (
+                <span style={{ fontSize: 11, color: isGood ? 'var(--color-status-ok)' : 'var(--color-alert-critical)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+                  {delta.kind === 'new' && '▲ new waste'}
+                  {delta.kind === 'cleared' && '▼ waste cleared'}
+                  {delta.kind === 'percent' && `${delta.value > 0 ? '▲' : '▼'} ${Math.abs(delta.value).toFixed(1)}%`}
+                </span>
+              );
+            })()}
           </div>
         </MonthlyWasteCard>
       </div>
