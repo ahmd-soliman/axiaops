@@ -30,13 +30,37 @@ const LIST_PAGE_SIZE = 50;
 // view on the "daily" toggle was silently weekly-bucketed, which made the
 // two screens render inconsistent shapes at the same period.
 
-// Group snapshots by day, sum across same-day scans (multi-account orgs
-// have multiple scans per day with distinct timestamps). One point per day,
-// org-wide total_monthly_cost rate.
-function aggregateToDays(snaps) {
+// total_monthly_cost is a point-in-time RATE ("if this keeps up for a
+// month"), not a per-scan charge. "One observation per account per day"
+// therefore means one *reading* per account per day, not a sum of however
+// many times that account happened to scan that day -- an account rescanned
+// several times in one day (dev cadence, manual re-triggers, or a
+// UTC-vs-local day boundary landing two real calendar days in the same
+// bucket) would otherwise have its own ongoing rate added to itself N
+// times. Take the latest reading per (account, day) first; every caller
+// that buckets by day builds on this.
+export function latestPerAccountPerDay(snaps) {
+  const latest = new Map();
+  for (const s of snaps) {
+    const day = s.snapshot_at.slice(0, 10);
+    const key = `${s.account_id}|${day}`;
+    const existing = latest.get(key);
+    if (!existing || s.snapshot_at > existing.snapshot_at) {
+      latest.set(key, s);
+    }
+  }
+  return [...latest.values()];
+}
+
+// Group snapshots by day, summing each day's per-account readings (multi-
+// account orgs have one reading per account per day; see
+// latestPerAccountPerDay for why same-day rescans of one account must be
+// deduped first, not summed). One point per day, org-wide total_monthly_cost
+// rate.
+export function aggregateToDays(snaps) {
   if (!snaps || snaps.length === 0) return [];
   const byDay = new Map();
-  for (const s of snaps) {
+  for (const s of latestPerAccountPerDay(snaps)) {
     const day = s.snapshot_at.slice(0, 10);
     const existing = byDay.get(day);
     if (existing) {
@@ -73,12 +97,13 @@ function downsampleByMonth(snaps) {
   });
 }
 
-// aggregateBucket — sum across same-day scans, then average across days.
-// Shared by downsample() and downsampleByMonth() so they agree on
-// "org-wide daily rate, averaged across the bucket".
+// aggregateBucket — sum each day's per-account readings (see
+// latestPerAccountPerDay), then average across days. Shared by downsample()
+// and downsampleByMonth() so they agree on "org-wide daily rate, averaged
+// across the bucket".
 function aggregateBucket(group) {
   const byDay = new Map();
-  for (const s of group) {
+  for (const s of latestPerAccountPerDay(group)) {
     const day = s.snapshot_at.slice(0, 10);
     const acc = byDay.get(day) ?? { cost: 0, zombies: 0 };
     acc.cost += s.total_monthly_cost ?? 0;
@@ -450,12 +475,22 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
   // first collapses that bias — every day contributes one observation,
   // regardless of how many accounts scanned it.
   //
+  // total_monthly_cost is a point-in-time RATE ("if this keeps up for a
+  // month"), not a per-scan charge -- so "one observation per account per
+  // day" must mean one *reading*, not a sum of however many times that
+  // account happened to scan that day. An account rescanned several times
+  // in one day (dev cadence, manual re-triggers, or a UTC-vs-local day
+  // boundary landing two real calendar days in the same bucket) would
+  // otherwise have its own ongoing rate added to itself N times, inflating
+  // that day's contribution by however many extra scans landed on it. Take
+  // the latest reading per (account, day) first, then sum across accounts.
+  //
   // selectedSnap still overrides so clicking a history point shows its
   // exact value (the user's already-explicit choice).
   const avgWindowCost = (() => {
     if (filteredSnaps.length === 0) return 0;
     const byDay = new Map();
-    for (const s of filteredSnaps) {
+    for (const s of latestPerAccountPerDay(filteredSnaps)) {
       const day = s.snapshot_at.slice(0, 10);
       byDay.set(day, (byDay.get(day) ?? 0) + (s.total_monthly_cost ?? 0));
     }
