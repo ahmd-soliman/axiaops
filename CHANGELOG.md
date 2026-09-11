@@ -25,6 +25,14 @@ Each version section uses these subheadings, in this order, omitting empty ones:
 
 ## [Unreleased]
 
+## [0.3.0-alpha.5] — 2026-09-11
+
+### Fixed
+
+- Trend screen's headline waste figure no longer averages `total_monthly_cost` across the selected window — averaging a point-in-time rate across days where it changed (e.g. mostly $0, then real waste appearing) produced a number that didn't correspond to any real moment and structurally under-reported currently-trending-up waste. It now shows the currently-displayed scan's own value directly: the latest scan by default, or the exact value of a clicked history point.
+- Trend and Overview ("Monthly Waste" card) delta badges (`▲`/`▼ %`) no longer produce a nonsensical percentage (e.g. `▲ 144000.0%`) when the window's starting cost is near $0 — both now report a qualitative "new waste" / "waste cleared" badge instead of dividing by an artificial floor, falling back to a real percentage only when both ends of the window have a genuine non-zero baseline.
+- Day-bucketing feeding both of the above (`aggregateToDays`, `latestPerAccountPerDay` on Trend; `computeDailyTotals` on Overview) no longer double-counts an account rescanned multiple times in one day — it now takes the latest reading per account per day instead of summing every scan. It also now buckets by the viewer's local calendar day instead of slicing the raw UTC timestamp, which previously could silently merge two real calendar days into one for viewers far enough ahead of UTC.
+
 ## [0.3.0-alpha.4] — 2026-09-07
 
 ### Added
@@ -988,6 +996,7 @@ Reconstruct the full Phase 1 history via
 `git log 0.1.0-alpha.1 --no-merges` once the tag is fetched.
 
 [Unreleased]: https://github.com/axiaops-io/axiaops/compare/0.3.0-alpha.1...main
+[0.3.0-alpha.5]: https://github.com/axiaops-io/axiaops/tree/0.3.0-alpha.5
 [0.3.0-alpha.4]: https://github.com/axiaops-io/axiaops/tree/0.3.0-alpha.4
 [0.3.0-alpha.3]: https://github.com/axiaops-io/axiaops/tree/0.3.0-alpha.3
 [0.3.0-alpha.2]: https://github.com/axiaops-io/axiaops/tree/0.3.0-alpha.2
