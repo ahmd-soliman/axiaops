@@ -111,6 +111,30 @@ creates the S3 buckets, the Glue database/table with projection enabled, an
 Athena workgroup, and the Data Exports config in one stack — see
 `services/api/internal/api/templates/cur_setup.yaml.tmpl`.
 
+### Reserved Instance / Savings Plan amortization
+
+`buildAmortizedSQL()` (`services/ingestion/internal/provider/aws/cur/query.go`)
+spreads Reserved Instance and Savings Plan commitments across the billing
+period instead of showing them as one lump sum on the day they were
+purchased or renewed, via a `CASE` on the CUR's `line_item_line_item_type`
+column:
+
+- `SavingsPlanCoveredUsage` / `DiscountedUsage` (RI) — the discounted
+  effective cost, not the pre-commitment list price.
+- `SavingsPlanRecurringFee` / `RIFee` — the *unused* portion of the
+  commitment for the period (what you paid for but didn't consume) — this is
+  the number a future "wasted commitment" zombie rule would key off.
+- `SavingsPlanNegation` / `SavingsPlanUpfrontFee` / `Fee` — zeroed, since
+  that cost is already captured via the effective-cost or unused-commitment
+  lines above and would otherwise be double-counted.
+- Everything else (`Usage`, `Credit`, `Refund`) — passes through the raw
+  unblended cost unchanged; no commitment is involved.
+
+`amortization_formula_test.go` pins this arithmetic with a Go mirror of the
+same `CASE` expression, exercised against fixtures for every branch, plus a
+drift guard asserting the real SQL and the Go mirror special-case the same
+set of line item types.
+
 
 ## Service coverage
 
