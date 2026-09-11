@@ -572,14 +572,11 @@ export default function TrendScreen({ accounts, selectedAccount, selectedAwsAcco
               body={
                 <>
                   <p style={{ margin: 0 }}>
-                    This is the most recent scan's estimate: if these zombie resources stay idle
-                    for a full month at today's rate, this is what they'd cost — not money already
-                    spent, and not an average over the window shown below.
+                    Estimated monthly cost based on current billing rates, including dismissed
+                    or snoozed resources.
                   </p>
                   <p style={{ margin: '8px 0 0', color: 'var(--color-text-mid)' }}>
-                    "Before dismissals" means resources you've dismissed or snoozed are still
-                    counted here. Click a point in the chart below to see an earlier scan's exact
-                    value instead.
+                    Click a chart point for an earlier scan.
                   </p>
                 </>
               }
